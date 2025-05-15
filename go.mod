@@ -1,4 +1,4 @@
-module go-common
+module github.com/ZoyaDenisova/go-common
 
 go 1.23.0
 
