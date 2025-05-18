@@ -40,34 +40,42 @@ func New(level string) *Logger {
 		zapLevel = zapcore.InfoLevel
 	}
 
-	cfg := zap.Config{
-		Level:            zap.NewAtomicLevelAt(zapLevel),
-		Development:      false,
-		Encoding:         "json",
-		OutputPaths:      []string{"stdout"},
-		ErrorOutputPaths: []string{"stderr"},
-		EncoderConfig: zapcore.EncoderConfig{
-			TimeKey:        "time",
-			LevelKey:       "level",
-			NameKey:        "logger",
-			CallerKey:      "caller",
-			MessageKey:     "msg",
-			StacktraceKey:  "stacktrace",
-			LineEnding:     zapcore.DefaultLineEnding,
-			EncodeLevel:    zapcore.LowercaseLevelEncoder,
-			EncodeTime:     zapcore.ISO8601TimeEncoder,
-			EncodeDuration: zapcore.SecondsDurationEncoder,
-			EncodeCaller:   zapcore.ShortCallerEncoder,
-		},
+	// создаём JSON encoder
+	encoderCfg := zapcore.EncoderConfig{
+		TimeKey:        "time",
+		LevelKey:       "level",
+		NameKey:        "logger",
+		CallerKey:      "caller",
+		MessageKey:     "msg",
+		StacktraceKey:  "stacktrace",
+		LineEnding:     zapcore.DefaultLineEnding,
+		EncodeLevel:    zapcore.LowercaseLevelEncoder,
+		EncodeTime:     zapcore.ISO8601TimeEncoder,
+		EncodeDuration: zapcore.SecondsDurationEncoder,
+		EncodeCaller:   zapcore.ShortCallerEncoder,
 	}
+	encoder := zapcore.NewJSONEncoder(encoderCfg)
 
-	baseLogger, err := cfg.Build(zap.AddCallerSkip(1))
+	// открываем лог-файл
+	logFile, err := os.OpenFile("logs/app.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
-		panic(fmt.Sprintf("can't initialize zap logger: %v", err))
+		panic(fmt.Sprintf("can't open log file: %v", err))
 	}
+	fileWriter := zapcore.AddSync(logFile)
+
+	// stdout
+	consoleWriter := zapcore.AddSync(os.Stdout)
+
+	// объединённый core: в файл и в консоль
+	core := zapcore.NewTee(
+		zapcore.NewCore(encoder, consoleWriter, zapLevel),
+		zapcore.NewCore(encoder, fileWriter, zapLevel),
+	)
+
+	logger := zap.New(core, zap.AddCaller(), zap.AddCallerSkip(1))
 
 	return &Logger{
-		logger: baseLogger.Sugar(),
+		logger: logger.Sugar(),
 	}
 }
 
