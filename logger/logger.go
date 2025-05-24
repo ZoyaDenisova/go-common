@@ -11,16 +11,15 @@ import (
 
 // Interface -.
 type Interface interface {
-	Debug(message interface{}, args ...interface{})
-	Info(message string, args ...interface{})
-	Warn(message string, args ...interface{})
-	Error(message interface{}, args ...interface{})
-	Fatal(message interface{}, args ...interface{})
+	Debug(msg interface{}, args ...interface{})
+	Info(msg string, args ...interface{})
+	Warn(msg string, args ...interface{})
+	Error(msg interface{}, args ...interface{})
+	Fatal(msg interface{}, args ...interface{})
 }
 
-// Logger -.
 type Logger struct {
-	logger *zap.SugaredLogger
+	logger *zap.Logger
 }
 
 var _ Interface = (*Logger)(nil)
@@ -40,7 +39,6 @@ func New(level string) *Logger {
 		zapLevel = zapcore.InfoLevel
 	}
 
-	// создаём JSON encoder
 	encoderCfg := zapcore.EncoderConfig{
 		TimeKey:        "time",
 		LevelKey:       "level",
@@ -56,83 +54,65 @@ func New(level string) *Logger {
 	}
 	encoder := zapcore.NewJSONEncoder(encoderCfg)
 
-	// открываем лог-файл
 	logFile, err := os.OpenFile("logs/app.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
 		panic(fmt.Sprintf("can't open log file: %v", err))
 	}
 	fileWriter := zapcore.AddSync(logFile)
-
-	// stdout
 	consoleWriter := zapcore.AddSync(os.Stdout)
 
-	// объединённый core: в файл и в консоль
 	core := zapcore.NewTee(
 		zapcore.NewCore(encoder, consoleWriter, zapLevel),
 		zapcore.NewCore(encoder, fileWriter, zapLevel),
 	)
 
-	logger := zap.New(core, zap.AddCaller(), zap.AddCallerSkip(1))
-
 	return &Logger{
-		logger: logger.Sugar(),
+		logger: zap.New(core, zap.AddCaller(), zap.AddCallerSkip(1)),
 	}
 }
 
-// Debug -.
 func (l *Logger) Debug(message interface{}, args ...interface{}) {
-	l.msg("debug", message, args...)
+	msg := stringify(message)
+	l.logger.Debug(msg, toZapFields(args...)...)
 }
 
-// Info -.
 func (l *Logger) Info(message string, args ...interface{}) {
-	l.logger.Infof(message, args...)
+	l.logger.Info(message, toZapFields(args...)...)
 }
 
-// Warn -.
 func (l *Logger) Warn(message string, args ...interface{}) {
-	l.logger.Warnf(message, args...)
+	l.logger.Warn(message, toZapFields(args...)...)
 }
 
-// Error -.
 func (l *Logger) Error(message interface{}, args ...interface{}) {
-	if l.logger.Level().Enabled(zapcore.DebugLevel) {
-		l.Debug(message, args...)
-	}
-
-	l.msg("error", message, args...)
+	msg := stringify(message)
+	l.logger.Error(msg, toZapFields(args...)...)
 }
 
-// Fatal -.
 func (l *Logger) Fatal(message interface{}, args ...interface{}) {
-	l.msg("fatal", message, args...)
-	os.Exit(1)
+	msg := stringify(message)
+	l.logger.Fatal(msg, toZapFields(args...)...)
 }
 
-func (l *Logger) msg(level string, message interface{}, args ...interface{}) {
-	switch msg := message.(type) {
+func stringify(v interface{}) string {
+	switch m := v.(type) {
 	case error:
-		l.output(level, msg.Error(), args...)
+		return m.Error()
 	case string:
-		l.output(level, msg, args...)
+		return m
 	default:
-		l.output(level, fmt.Sprintf("%v", msg), args...)
+		return fmt.Sprintf("%v", m)
 	}
 }
 
-func (l *Logger) output(level, message string, args ...interface{}) {
-	switch level {
-	case "debug":
-		l.logger.Debugf(message, args...)
-	case "info":
-		l.logger.Infof(message, args...)
-	case "warn":
-		l.logger.Warnf(message, args...)
-	case "error":
-		l.logger.Errorf(message, args...)
-	case "fatal":
-		l.logger.Fatalf(message, args...)
-	default:
-		l.logger.Infof(message, args...)
+func toZapFields(args ...interface{}) []zap.Field {
+	fields := make([]zap.Field, 0, len(args)/2)
+	for i := 0; i+1 < len(args); i += 2 {
+		key, ok := args[i].(string)
+		if !ok {
+			key = fmt.Sprintf("invalid_key_%d", i)
+		}
+		fields = append(fields, zap.Any(key, args[i+1]))
 	}
+	return fields
 }
